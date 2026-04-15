@@ -100,6 +100,24 @@ def test_window_handles_zero_sites_in_some_codons():
     assert np.isfinite(out["obs_pi"][2])
 
 
+def test_window_nt_positions_override_codon_default():
+    # Per-position (1 nt per index) instead of per-codon mapping.
+    sites = np.ones(5)
+    pi = np.zeros(5)
+    div = np.zeros(5)
+    explicit = np.array([10, 20, 30, 40, 50])
+    out = sliding_window(sites, pi, div, t_plus_1=1.0, w=1, nt_positions=explicit)
+    assert list(out["nt_position"]) == [10, 20, 30, 40, 50]
+
+
+def test_window_nt_positions_length_mismatch_raises():
+    sites = np.ones(5)
+    pi = np.zeros(5)
+    div = np.zeros(5)
+    with pytest.raises(ValueError, match="length"):
+        sliding_window(sites, pi, div, t_plus_1=1.0, w=1, nt_positions=np.array([1, 2, 3]))
+
+
 def test_window_global_pi_and_div_returned():
     sites = np.array([1.0, 1.0, 1.0])
     pi = np.array([0.5, 0.5, 0.5])

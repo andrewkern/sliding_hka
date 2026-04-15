@@ -16,24 +16,29 @@ def sliding_window(
     silent_div: np.ndarray,
     t_plus_1: float,
     w: int,
+    nt_positions: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """Compute the sliding window of observed pi and expected pi.
 
-    For each codon index, symmetrically expand a window of neighbouring
-    codons until the cumulative silent-site count reaches ``w`` (or the
-    sequence ends). Within that window,
+    For each index, symmetrically expand a window of neighbouring indices
+    until the cumulative silent-site count reaches ``w`` (or the sequence
+    ends). Within that window,
 
         obs_pi   = sum(silent_pi) / sum(silent_sites)
         exp_pi   = (sum(silent_div) / sum(silent_sites)) / (T + 1)
 
-    Windows are assigned to the nucleotide midpoint of the center codon.
+    Windows are assigned to the nucleotide position supplied in
+    ``nt_positions[i]``; when omitted, the function assumes per-codon input
+    (each index is one codon, 3 nt apart) and uses ``codon_nt_position``.
 
     Args:
-        silent_sites: Per-codon Nei-Gojobori synonymous-site count (length N).
-        silent_pi:   Per-codon mean ingroup pairwise silent differences.
-        silent_div:  Per-codon mean ingroup-vs-outgroup silent divergences.
+        silent_sites: Per-index silent-site count (length N).
+        silent_pi:   Per-index ingroup mean silent pairwise differences.
+        silent_div:  Per-index ingroup-vs-outgroup mean silent divergences.
         t_plus_1:    Global divergence-time scaler (see ``sliding_hka.hka``).
         w:           Target window width in silent sites.
+        nt_positions: Optional per-index nucleotide positions for plotting
+            (length N). Defaults to codon-midpoint mapping (3*i + 1).
 
     Returns:
         Dict with numpy arrays ``nt_position``, ``obs_pi``, ``exp_pi``, and
@@ -47,7 +52,14 @@ def sliding_window(
     if t_plus_1 <= 0:
         raise ValueError("t_plus_1 must be positive")
 
-    nt_pos = np.array([codon_nt_position(i) for i in range(n)], dtype=int)
+    if nt_positions is None:
+        nt_pos = np.array([codon_nt_position(i) for i in range(n)], dtype=int)
+    else:
+        if len(nt_positions) != n:
+            raise ValueError(
+                f"nt_positions length {len(nt_positions)} != array length {n}"
+            )
+        nt_pos = np.asarray(nt_positions, dtype=int)
     obs = np.full(n, np.nan)
     exp = np.full(n, np.nan)
     sites_in_window = np.zeros(n)

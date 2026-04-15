@@ -110,8 +110,12 @@ def test_raises_on_length_mismatch(tmp_path: Path):
         load_msa(fa)
 
 
-def test_raises_on_length_not_multiple_of_three(tmp_path: Path):
+def test_load_msa_accepts_non_triplet_length(tmp_path: Path):
+    # io.load_msa no longer enforces multiple-of-three; that constraint is
+    # applied only when callers actually require codon-framed analysis
+    # (e.g. counts.per_codon_arrays).
     fa = tmp_path / "notriplet.fa"
     fa.write_text(">a\nATGA\n>b\nATGA\n")
-    with pytest.raises(ValueError, match="multiple of three"):
-        load_msa(fa)
+    ingroup, outgroup = load_msa(fa)
+    assert len(ingroup) == 1
+    assert len(outgroup) == 1

@@ -12,3 +12,9 @@ dist/
 
 # local data (the MSAs live in a shared data share; symlinked in at runtime)
 msas
+
+# per-run analysis outputs and dataset-specific scripts
+out/
+scripts/
+data/
+.mcp.json

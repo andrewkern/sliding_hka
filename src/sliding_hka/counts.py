@@ -1,4 +1,4 @@
-"""Per-codon silent-site, silent-pi, and silent-divergence counts."""
+"""Per-codon and per-position silent-site, silent-pi, and silent-divergence counts."""
 
 from __future__ import annotations
 
@@ -8,6 +8,15 @@ from itertools import combinations
 import numpy as np
 from mkado.core.codons import DEFAULT_CODE, GeneticCode
 from mkado.core.sequences import SequenceSet
+
+from sliding_hka.annotation import LocusAnnotation
+
+
+_COMPLEMENT = str.maketrans("ACGTNacgtn-", "TGCANtgcan-")
+
+
+def _revcomp(seq: str) -> str:
+    return seq.translate(_COMPLEMENT)[::-1]
 
 
 def _is_clean(codon: str) -> bool:
@@ -120,6 +129,11 @@ def per_codon_arrays(
         raise ValueError(
             f"codon count mismatch: ingroup={n_codons}, outgroup={outgroup.num_codons}"
         )
+    if ingroup.alignment_length % 3 != 0:
+        raise ValueError(
+            f"per_codon_arrays requires alignment length divisible by 3; "
+            f"got {ingroup.alignment_length}"
+        )
 
     sites = np.zeros(n_codons)
     pi = np.zeros(n_codons)
@@ -144,6 +158,149 @@ def per_codon_arrays(
             div[c] = div_val
 
     return sites, pi, div
+
+
+def per_position_arrays(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+    annotation: LocusAnnotation,
+    code: GeneticCode = DEFAULT_CODE,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-position silent_sites, silent_pi, silent_div arrays for an
+    annotated multi-feature alignment.
+
+    CDS positions get their codon-level Nei-Gojobori silent-site count and
+    pairwise/divergence silent-change counts (computed as in
+    ``per_codon_arrays``), then those scalars are spread evenly across the
+    codon's three alignment positions. Codons whose three positions are not
+    contiguous (e.g. a codon spanning an intron boundary) are still grouped
+    correctly by ``annotation.codon_index``.
+
+    Non-CDS positions are treated per-site: every alignable position
+    contributes 1 silent site; pi and div are mean nucleotide-level
+    pairwise differences.
+
+    Args:
+        ingroup: Aligned ingroup sequences.
+        outgroup: Aligned outgroup sequences (one or more).
+        annotation: Per-position feature labels and codon structure.
+        code: Genetic code (used for CDS classification).
+
+    Returns:
+        Three numpy arrays of length ``annotation.n_positions``:
+        silent_sites, silent_pi, silent_div.
+    """
+    n = annotation.n_positions
+    if ingroup.alignment_length < n or outgroup.alignment_length < n:
+        raise ValueError(
+            f"alignment length {min(ingroup.alignment_length, outgroup.alignment_length)} "
+            f"< annotation length {n}"
+        )
+
+    sites = np.zeros(n)
+    pi = np.zeros(n)
+    div = np.zeros(n)
+
+    # --- Non-CDS positions: per-site nt diversity ---
+    is_cds = annotation.is_cds()
+    for col in range(n):
+        if is_cds[col]:
+            continue
+        s, p, d = _per_site_at(col, ingroup, outgroup)
+        sites[col] = s
+        pi[col] = p
+        div[col] = d
+
+    # --- CDS codons: codon-aware classification, distributed across the 3 positions ---
+    for codon_idx, positions in annotation.codon_groups().items():
+        if len(positions) != 3:
+            # malformed annotation; skip with zeros
+            continue
+        ing_codons = [
+            _read_codon(seq.sequence, positions, annotation.strand)
+            for seq in ingroup.sequences
+        ]
+        out_codons = [
+            _read_codon(seq.sequence, positions, annotation.strand)
+            for seq in outgroup.sequences
+        ]
+        out_repr = _representative_codon(out_codons)
+        if out_repr is None:
+            continue
+
+        s_codon = silent_sites_codon(out_repr, code)
+        if s_codon <= 0:
+            continue
+        pi_codon, n_pairs = silent_pairwise_diff_codon(ing_codons, code)
+        div_codon, n_div = silent_divergence_codon(ing_codons, out_repr, code)
+
+        third_s = s_codon / 3.0
+        third_pi = (pi_codon / 3.0) if n_pairs > 0 else 0.0
+        third_div = (div_codon / 3.0) if n_div > 0 else 0.0
+        for p_idx in positions:
+            sites[p_idx] = third_s
+            pi[p_idx] = third_pi
+            div[p_idx] = third_div
+
+    return sites, pi, div
+
+
+def _read_codon(seq: str, positions: tuple[int, ...], strand: str) -> str:
+    """Read 3 bases from `seq` at the given alignment positions, applying
+    reverse-complement when ``strand == '-'``."""
+    bases = seq[positions[0]] + seq[positions[1]] + seq[positions[2]]
+    if strand == "-":
+        bases = _revcomp(bases)
+    return bases.upper()
+
+
+def _representative_codon(codons: list[str]) -> str | None:
+    """Return the unique clean codon if all clean codons agree, else None."""
+    clean = [c for c in codons if _is_clean(c)]
+    if not clean:
+        return None
+    unique = set(clean)
+    if len(unique) == 1:
+        return clean[0]
+    return None
+
+
+def _per_site_at(
+    col: int, ingroup: SequenceSet, outgroup: SequenceSet
+) -> tuple[float, float, float]:
+    """Per-site silent_sites/pi/div for a single (assumed neutral) column.
+
+    Returns (1.0, pi, div) when both ingroup and outgroup have any clean
+    bases at this column, else (0, 0, 0). Pairs/observations involving N
+    or '-' are dropped.
+    """
+    in_bases = [s.sequence[col].upper() for s in ingroup.sequences]
+    out_bases = [s.sequence[col].upper() for s in outgroup.sequences]
+    in_clean = [b for b in in_bases if b in "ACGT"]
+    out_clean = [b for b in out_bases if b in "ACGT"]
+    if not in_clean or not out_clean:
+        return 0.0, 0.0, 0.0
+
+    pi_val = 0.0
+    if len(in_clean) >= 2:
+        n_pairs = 0
+        n_diff = 0
+        for a, b in combinations(in_clean, 2):
+            n_pairs += 1
+            if a != b:
+                n_diff += 1
+        pi_val = n_diff / n_pairs
+
+    n_pairs = 0
+    n_diff = 0
+    for a in in_clean:
+        for b in out_clean:
+            n_pairs += 1
+            if a != b:
+                n_diff += 1
+    div_val = (n_diff / n_pairs) if n_pairs else 0.0
+
+    return 1.0, pi_val, div_val
 
 
 def _outgroup_representative_codon(outgroup: SequenceSet, codon_index: int) -> str | None:

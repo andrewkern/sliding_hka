@@ -52,11 +52,7 @@ def load_msa(
         raise ValueError(
             f"Alignment length mismatch in {path}: lengths {sorted(lengths)}"
         )
-    (length,) = lengths
-    if length % 3 != 0:
-        raise ValueError(
-            f"Alignment length in {path} ({length}) is not a multiple of three"
-        )
+    (length,) = lengths  # noqa: F841 — retained for callers that want to inspect it
 
     ingroup_seqs, outgroup_seqs = _route_sequences(
         records,
