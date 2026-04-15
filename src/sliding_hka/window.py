@@ -65,6 +65,13 @@ def sliding_window(
     sites_in_window = np.zeros(n)
 
     for c in range(n):
+        # Centers that contribute no silent sites themselves sit inside an
+        # alignment dead zone; any window anchored there is dominated by
+        # distant active positions and produces flat plateaus across the
+        # whole dead zone. Refuse those centers — they have no local signal.
+        if silent_sites[c] <= 0:
+            continue
+
         left = right = c
         total_sites = float(silent_sites[c])
         blocked = False

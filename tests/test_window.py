@@ -100,6 +100,25 @@ def test_window_handles_zero_sites_in_some_codons():
     assert np.isfinite(out["obs_pi"][2])
 
 
+def test_window_dead_zone_center_returns_nan():
+    # When the center position itself contributes no silent sites (a gap in
+    # the alignment, e.g. an uncovered intergenic stretch), the window has no
+    # meaningful local signal and should be NaN rather than grabbing far-
+    # away active sites.
+    active = [1] * 10
+    dead = [0] * 5
+    sites = np.array(active + dead + active, dtype=float)  # 25 positions
+    pi = np.zeros(25)
+    div = np.zeros(25)
+    out = sliding_window(sites, pi, div, t_plus_1=1.0, w=5)
+    # Dead-zone centers (indices 10..14) should all be NaN
+    assert np.all(np.isnan(out["obs_pi"][10:15]))
+    # Middle of left active zone should produce a finite value
+    assert np.isfinite(out["obs_pi"][5])
+    # Middle of right active zone should produce a finite value
+    assert np.isfinite(out["obs_pi"][19])
+
+
 def test_window_nt_positions_override_codon_default():
     # Per-position (1 nt per index) instead of per-codon mapping.
     sites = np.ones(5)
