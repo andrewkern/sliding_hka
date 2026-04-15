@@ -38,8 +38,27 @@ def run(
         Path("."), "--outdir", "-o", help="Directory for output PNGs."
     ),
     window: int = typer.Option(100, "--window", "-w", help="Window width in silent sites."),
-    ingroup_prefix: str = typer.Option("Bgland_", "--ingroup-prefix"),
-    outgroup_prefix: str = typer.Option("Bcrena_", "--outgroup-prefix"),
+    ingroup_match: str = typer.Option(
+        None,
+        "--ingroup-match",
+        help=(
+            "Substring matched against sequence names to select ingroup. "
+            "If omitted, ingroup is everything not in the outgroup."
+        ),
+    ),
+    outgroup_match: str = typer.Option(
+        None,
+        "--outgroup-match",
+        help=(
+            "Substring matched against sequence names to select outgroup. "
+            "If omitted, the first sequence in each FASTA is used as the outgroup."
+        ),
+    ),
+    allow_multi_outgroup: bool = typer.Option(
+        False,
+        "--allow-multi-outgroup",
+        help="Permit more than one outgroup sequence per locus.",
+    ),
     joint_t: bool = typer.Option(
         False, "--joint-t", help="Pool T+1 across all input loci."
     ),
@@ -52,7 +71,10 @@ def run(
     for fa in fastas:
         typer.echo(f"Loading {fa}", err=True)
         ingroup, outgroup = load_msa(
-            fa, ingroup_prefix=ingroup_prefix, outgroup_prefix=outgroup_prefix
+            fa,
+            ingroup_match=ingroup_match,
+            outgroup_match=outgroup_match,
+            allow_multi_outgroup=allow_multi_outgroup,
         )
         sites, pi, div = per_codon_arrays(ingroup, outgroup)
         loaded.append((fa, (sites, pi, div)))

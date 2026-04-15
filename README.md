@@ -17,7 +17,7 @@ uv run sliding-hka run msas/Adh.fa --outdir out/
 uv run sliding-hka run msas/*.fa --outdir out/ --joint-t
 ```
 
-Default sequence-name prefixes: `Bcrena_` for outgroup, `Bgland_` for ingroup. Override with `--outgroup-prefix` / `--ingroup-prefix`.
+**Ingroup / outgroup routing:** by default, the first sequence in each FASTA is treated as the outgroup and the rest as the ingroup. Override with substring patterns `--outgroup-match PATTERN` and/or `--ingroup-match PATTERN` (mkado-style). Pass `--allow-multi-outgroup` to permit more than one outgroup sequence per locus.
 
 ## Notes on method
 
