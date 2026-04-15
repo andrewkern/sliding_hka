@@ -60,15 +60,33 @@ def test_window_expected_pi_hand_calc():
     assert out["exp_pi"][2] == pytest.approx(0.5)
 
 
-def test_window_at_left_edge_truncates():
-    sites = np.ones(5)
-    pi = np.array([10.0, 0.0, 0.0, 0.0, 0.0])
-    div = np.zeros(5)
-    out = sliding_window(sites, pi, div, t_plus_1=1.0, w=3)
-    # Codon 0 can extend right but not left; window covers <= 3 sites
-    assert out["sites_in_window"][0] <= 3
-    # Observed pi should still be finite
-    assert np.isfinite(out["obs_pi"][0])
+def test_window_at_left_edge_returns_nan():
+    # Edge codons cannot support a symmetric window containing w silent
+    # sites — they should be returned as NaN rather than borrowing from
+    # the opposite side (which produces flat edges in plots).
+    sites = np.ones(10)
+    pi = np.zeros(10)
+    div = np.zeros(10)
+    out = sliding_window(sites, pi, div, t_plus_1=1.0, w=5)
+    # Center 0 has no sites to its left beyond itself — invalid
+    assert np.isnan(out["obs_pi"][0])
+    assert np.isnan(out["exp_pi"][0])
+    # Center near middle should be valid
+    assert np.isfinite(out["obs_pi"][5])
+
+
+def test_window_edges_do_not_repeat_values():
+    # With the previous asymmetric-fill behavior, several adjacent edge
+    # codons shared the same window and therefore the same obs/exp values.
+    sites = np.ones(20)
+    pi = np.arange(20, dtype=float)  # distinct per codon so repeats are detectable
+    div = np.zeros(20)
+    out = sliding_window(sites, pi, div, t_plus_1=1.0, w=10)
+    valid = ~np.isnan(out["obs_pi"])
+    valid_vals = out["obs_pi"][valid]
+    # Every valid window should differ from its neighbor (strictly monotone pi input).
+    diffs = np.diff(valid_vals)
+    assert np.all(diffs > 0), f"found repeated edge values: {valid_vals}"
 
 
 def test_window_handles_zero_sites_in_some_codons():

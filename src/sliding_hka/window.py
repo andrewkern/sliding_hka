@@ -55,21 +55,30 @@ def sliding_window(
     for c in range(n):
         left = right = c
         total_sites = float(silent_sites[c])
+        blocked = False
         while total_sites < w:
             can_left = left > 0
             can_right = right < n - 1
-            if not can_left and not can_right:
+            # If either side is blocked we can no longer expand symmetrically
+            # around the center. Borrowing from the open side would produce
+            # an asymmetric window whose "center" is not the codon c we are
+            # assigning the value to — and repeated borrows across adjacent
+            # edge centers would all converge to the same window, flattening
+            # the plot. Mark the center invalid instead.
+            if not can_left or not can_right:
+                blocked = True
                 break
-            # Expand the shorter side first to stay symmetric around c.
             left_span = c - left
             right_span = right - c
-            extend_left = can_left and (not can_right or left_span <= right_span)
-            if extend_left:
+            if left_span <= right_span:
                 left -= 1
                 total_sites += float(silent_sites[left])
             else:
                 right += 1
                 total_sites += float(silent_sites[right])
+
+        if blocked or total_sites < w:
+            continue
 
         sum_sites = float(silent_sites[left : right + 1].sum())
         sites_in_window[c] = sum_sites
