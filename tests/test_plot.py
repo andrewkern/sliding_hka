@@ -42,7 +42,7 @@ def test_plot_writes_png(tmp_path: Path):
 def test_plot_title_mentions_t_plus_1_and_window():
     out = _fake_window_output()
     fig = sliding_hka_plot(out, t_plus_1=6.3, window=100, locus="Adh")
-    title = fig.axes[0].get_title()
+    title = fig._suptitle.get_text() if fig._suptitle else fig.axes[0].get_title()
     assert "T+1" in title
     assert "6.3" in title or "6.30" in title
     assert "w=100" in title
@@ -79,15 +79,59 @@ def test_plot_with_annotation_adds_structure_axis():
     plt.close(fig)
 
 
-def test_plot_shades_missing_data_when_obs_nan():
+def test_plot_short_gaps_render_as_single_panel():
+    # NaN run of 10 positions × 3 bp apart = 30bp: stays below the default
+    # 2000bp max_gap_bp, so the plot renders as a single axes.
     out = _fake_window_output(n=30)
-    # Punch a NaN gap in the middle to represent a dead zone
     out["obs_pi"][10:20] = np.nan
     out["exp_pi"][10:20] = np.nan
     fig = sliding_hka_plot(out, t_plus_1=6.3, window=100, locus="Adh")
-    # A grey axvspan should cover the NaN region. Count matplotlib patches.
-    main_ax = fig.axes[0]
-    patches = [p for p in main_ax.patches if p.get_facecolor()[0] > 0]  # coloured patches
-    assert len(patches) >= 1
+    assert len(fig.axes) == 1
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_plot_long_gap_triggers_broken_axis():
+    # Fake a very long NaN gap by explicitly setting widely-spaced positions.
+    n = 30
+    pos = np.arange(n) * 1000 + 1  # 1000bp apart -> total 29kb
+    out = {
+        "nt_position": pos,
+        "obs_pi": np.linspace(0.01, 0.05, n),
+        "exp_pi": np.linspace(0.02, 0.04, n),
+        "sites_in_window": np.full(n, 100.0),
+    }
+    # Punch 10 consecutive NaN positions = 10,000bp gap in the middle
+    out["obs_pi"][10:20] = np.nan
+    out["exp_pi"][10:20] = np.nan
+    fig = sliding_hka_plot(out, t_plus_1=6.3, window=100, locus="Adh",
+                           max_gap_bp=2000)
+    # Broken axis → two main panels (no annotation, so no track row)
+    assert len(fig.axes) == 2
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_plot_long_gap_with_annotation_breaks_both_tracks():
+    from sliding_hka.annotation import LocusAnnotation
+    n = 30
+    pos = np.arange(n) * 1000 + 1
+    out = {
+        "nt_position": pos,
+        "obs_pi": np.linspace(0.01, 0.05, n),
+        "exp_pi": np.linspace(0.02, 0.04, n),
+        "sites_in_window": np.full(n, 100.0),
+    }
+    out["obs_pi"][10:20] = np.nan
+    out["exp_pi"][10:20] = np.nan
+    ann = LocusAnnotation.empty(30000, strand="+")
+    for p in range(5000, 8000):
+        ann.feature[p] = "CDS"
+        ann.codon_index[p] = (p - 5000) // 3
+        ann.codon_pos[p] = (p - 5000) % 3
+    fig = sliding_hka_plot(out, t_plus_1=6.3, window=100, locus="Adh",
+                           annotation=ann, max_gap_bp=2000)
+    # 2 main panels × 2 rows (main + track) = 4 axes
+    assert len(fig.axes) == 4
     import matplotlib.pyplot as plt
     plt.close(fig)

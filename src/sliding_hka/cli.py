@@ -74,6 +74,15 @@ def run(
             "counts and non-CDS columns are treated as one silent site each."
         ),
     ),
+    max_gap_bp: int = typer.Option(
+        2000,
+        "--max-gap-bp",
+        help=(
+            "When a contiguous NaN gap in the sliding-window output spans "
+            "at least this many bp, the plot x-axis is broken around it. "
+            "Set very large to disable."
+        ),
+    ),
     image_format: str = typer.Option("png", "--format", help="Image format (png or pdf)."),
 ) -> None:
     """Compute and plot observed vs. expected silent diversity along each CDS."""
@@ -138,7 +147,7 @@ def run(
         save_path = outdir / f"{locus_name}.sliding_hka.{image_format}"
         fig = sliding_hka_plot(
             out, t_plus_1=t_plus_1, window=window, locus=locus_name,
-            save_to=save_path, annotation=ann,
+            save_to=save_path, annotation=ann, max_gap_bp=max_gap_bp,
         )
         plt.close(fig)
         typer.echo(f"Wrote {save_path}", err=True)
