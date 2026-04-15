@@ -1,0 +1,39 @@
+[project]
+name = "sliding_hka"
+version = "0.1.0"
+description = "Sliding-window HKA diagnostic for aligned coding sequences (Kreitman & Hudson 1991)"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Andrew Kern", email = "adkern@uoregon.edu" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "mkado",
+    "numpy>=2",
+    "matplotlib>=3.5",
+    "seaborn>=0.12",
+    "typer>=0.15",
+    "rich>=14",
+]
+
+[project.scripts]
+sliding-hka = "sliding_hka.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.9.5,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov",
+    "ruff",
+]
+
+[tool.uv.sources]
+mkado = { path = "/home/adkern/mkado", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
