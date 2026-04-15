@@ -59,3 +59,35 @@ def test_plot_skips_nan_positions_without_crashing():
     assert isinstance(fig, matplotlib.figure.Figure)
     import matplotlib.pyplot as plt
     plt.close(fig)
+
+
+def test_plot_with_annotation_adds_structure_axis():
+    from sliding_hka.annotation import LocusAnnotation
+    out = _fake_window_output(n=30)
+    ann = LocusAnnotation.empty(90, strand="+")
+    for p in range(0, 30):
+        ann.feature[p] = "intergenic"
+    for p in range(30, 60):
+        ann.feature[p] = "CDS"
+        ann.codon_index[p] = (p - 30) // 3
+        ann.codon_pos[p] = (p - 30) % 3
+    for p in range(60, 90):
+        ann.feature[p] = "intron"
+    fig = sliding_hka_plot(out, t_plus_1=6.3, window=100, locus="Adh", annotation=ann)
+    assert len(fig.axes) == 2  # main + gene-structure track
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_plot_shades_missing_data_when_obs_nan():
+    out = _fake_window_output(n=30)
+    # Punch a NaN gap in the middle to represent a dead zone
+    out["obs_pi"][10:20] = np.nan
+    out["exp_pi"][10:20] = np.nan
+    fig = sliding_hka_plot(out, t_plus_1=6.3, window=100, locus="Adh")
+    # A grey axvspan should cover the NaN region. Count matplotlib patches.
+    main_ax = fig.axes[0]
+    patches = [p for p in main_ax.patches if p.get_facecolor()[0] > 0]  # coloured patches
+    assert len(patches) >= 1
+    import matplotlib.pyplot as plt
+    plt.close(fig)

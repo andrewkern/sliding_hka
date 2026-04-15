@@ -79,7 +79,7 @@ def run(
     """Compute and plot observed vs. expected silent diversity along each CDS."""
     outdir.mkdir(parents=True, exist_ok=True)
 
-    loaded: list[tuple[Path, tuple, np.ndarray | None]] = []
+    loaded: list[tuple[Path, tuple, np.ndarray | None, LocusAnnotation | None]] = []
     for fa in fastas:
         typer.echo(f"Loading {fa}", err=True)
         ingroup, outgroup = load_msa(
@@ -91,6 +91,7 @@ def run(
         locus_name = fa.stem
         if locus_name.endswith(".full"):
             locus_name = locus_name[:-5]
+        ann = None
         if annotation_dir is not None:
             ann_path = annotation_dir / f"{locus_name}.annotation.tsv"
             if not ann_path.exists():
@@ -112,16 +113,16 @@ def run(
         else:
             sites, pi, div = per_codon_arrays(ingroup, outgroup)
             nt_positions = None
-        loaded.append((fa, (sites, pi, div), nt_positions))
+        loaded.append((fa, (sites, pi, div), nt_positions, ann))
 
     if joint_t:
         totals = [
-            LocusTotals.from_arrays(s, p, d) for _, (s, p, d), _ in loaded
+            LocusTotals.from_arrays(s, p, d) for _, (s, p, d), _, _ in loaded
         ]
         t_plus_1 = estimate_t_plus_1(totals)
         typer.echo(f"Joint T+1 = {t_plus_1:.3f}", err=True)
 
-    for fa, (sites, pi, div), nt_positions in loaded:
+    for fa, (sites, pi, div), nt_positions, ann in loaded:
         if not joint_t:
             t_plus_1 = estimate_t_plus_1(
                 [LocusTotals.from_arrays(sites, pi, div)]
@@ -136,7 +137,8 @@ def run(
             locus_name = locus_name[:-5]
         save_path = outdir / f"{locus_name}.sliding_hka.{image_format}"
         fig = sliding_hka_plot(
-            out, t_plus_1=t_plus_1, window=window, locus=locus_name, save_to=save_path
+            out, t_plus_1=t_plus_1, window=window, locus=locus_name,
+            save_to=save_path, annotation=ann,
         )
         plt.close(fig)
         typer.echo(f"Wrote {save_path}", err=True)
