@@ -85,6 +85,58 @@ def count_segregating_silent(
     return total
 
 
+def count_segregating_silent_annotated(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+    annotation: LocusAnnotation,
+    code: GeneticCode = DEFAULT_CODE,
+) -> int:
+    """Count silent segregating sites using per-position annotation.
+
+    CDS positions: a codon contributes 1 if any ingroup pair differs by a
+    synonymous change (same logic as ``count_segregating_silent``).
+
+    Non-CDS positions: a site contributes 1 if at least two distinct clean
+    bases exist among the ingroup sequences at that column and the outgroup
+    is also clean (so the position is alignable).
+    """
+    total = 0
+    is_cds = annotation.is_cds()
+
+    # Non-CDS: nucleotide-level segregation
+    for col in range(annotation.n_positions):
+        if is_cds[col]:
+            continue
+        out_bases = [s.sequence[col].upper() for s in outgroup.sequences]
+        if not any(b in "ACGT" for b in out_bases):
+            continue
+        in_bases = [s.sequence[col].upper() for s in ingroup.sequences]
+        clean = {b for b in in_bases if b in "ACGT"}
+        if len(clean) >= 2:
+            total += 1
+
+    # CDS: codon-aware synonymous segregation
+    for _codon_idx, positions in annotation.codon_groups().items():
+        if len(positions) != 3:
+            continue
+        out_codons = [
+            _read_codon(seq.sequence, positions, annotation.strand)
+            for seq in outgroup.sequences
+        ]
+        out_repr = _representative_codon(out_codons)
+        if out_repr is None:
+            continue
+        if silent_sites_codon(out_repr, code) <= 0:
+            continue
+        ing_codons = [
+            _read_codon(seq.sequence, positions, annotation.strand)
+            for seq in ingroup.sequences
+        ]
+        total += segregating_silent_codon(ing_codons, code)
+
+    return total
+
+
 def silent_pairwise_diff_codon(
     codons: list[str], code: GeneticCode = DEFAULT_CODE
 ) -> tuple[float, int]:

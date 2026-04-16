@@ -16,6 +16,7 @@ from sliding_hka.annotation import LocusAnnotation
 from sliding_hka.classic_hka import HKALocusInput, hka_test
 from sliding_hka.counts import (
     count_segregating_silent,
+    count_segregating_silent_annotated,
     per_codon_arrays,
     per_position_arrays,
 )
@@ -154,10 +155,13 @@ def test(
             outgroup_match=outgroup_match,
             allow_multi_outgroup=allow_multi_outgroup,
         )
-        sites, pi_arr, div_arr, _, _ = _load_arrays(fa, ingroup, outgroup, annotation_dir)
+        sites, pi_arr, div_arr, _, ann = _load_arrays(fa, ingroup, outgroup, annotation_dir)
 
         if mode == "seg":
-            poly_val = float(count_segregating_silent(ingroup, outgroup))
+            if ann is not None:
+                poly_val = float(count_segregating_silent_annotated(ingroup, outgroup, ann))
+            else:
+                poly_val = float(count_segregating_silent(ingroup, outgroup))
         else:
             poly_val = float(pi_arr.sum())
 
