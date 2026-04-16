@@ -13,7 +13,15 @@ import numpy as np
 import typer
 
 from sliding_hka.annotation import LocusAnnotation
-from sliding_hka.counts import per_codon_arrays, per_position_arrays
+from sliding_hka.classic_hka import HKALocusInput, hka_test
+from sliding_hka.counts import (
+    count_segregating_all,
+    count_segregating_silent,
+    count_segregating_silent_annotated,
+    per_codon_arrays,
+    per_position_arrays,
+    per_site_arrays_all,
+)
 from sliding_hka.hka import LocusTotals, estimate_t_plus_1
 from sliding_hka.io import load_msa
 from sliding_hka.plot import sliding_hka_plot
@@ -88,31 +96,7 @@ def run(
             outgroup_match=outgroup_match,
             allow_multi_outgroup=allow_multi_outgroup,
         )
-        locus_name = fa.stem
-        if locus_name.endswith(".full"):
-            locus_name = locus_name[:-5]
-        ann = None
-        if annotation_dir is not None:
-            ann_path = annotation_dir / f"{locus_name}.annotation.tsv"
-            if not ann_path.exists():
-                typer.echo(
-                    f"  warning: missing annotation {ann_path}, falling back to per-codon",
-                    err=True,
-                )
-                sites, pi, div = per_codon_arrays(ingroup, outgroup)
-                nt_positions = None
-            else:
-                ann = LocusAnnotation.from_tsv(
-                    ann_path,
-                    alignment_length=ingroup.alignment_length,
-                    strand=_infer_strand(ann_path),
-                )
-                sites, pi, div = per_position_arrays(ingroup, outgroup, ann)
-                # Per-position mode: nt_positions are 1-based column indices.
-                nt_positions = np.arange(1, ann.n_positions + 1, dtype=int)
-        else:
-            sites, pi, div = per_codon_arrays(ingroup, outgroup)
-            nt_positions = None
+        sites, pi, div, nt_positions, ann = _load_arrays(fa, ingroup, outgroup, annotation_dir)
         loaded.append((fa, (sites, pi, div), nt_positions, ann))
 
     if joint_t:
@@ -132,16 +116,134 @@ def run(
         out = sliding_window(
             sites, pi, div, t_plus_1=t_plus_1, w=window, nt_positions=nt_positions
         )
-        locus_name = fa.stem
-        if locus_name.endswith(".full"):
-            locus_name = locus_name[:-5]
-        save_path = outdir / f"{locus_name}.sliding_hka.{image_format}"
+        save_path = outdir / f"{_locus_name(fa)}.sliding_hka.{image_format}"
         fig = sliding_hka_plot(
-            out, t_plus_1=t_plus_1, window=window, locus=locus_name,
+            out, t_plus_1=t_plus_1, window=window, locus=_locus_name(fa),
             save_to=save_path, annotation=ann,
         )
         plt.close(fig)
         typer.echo(f"Wrote {save_path}", err=True)
+
+
+@app.command()
+def test(
+    fastas: list[Path] = typer.Argument(
+        ..., help="Two or more aligned FASTAs (one per locus).", exists=True, readable=True
+    ),
+    ingroup_match: str = typer.Option(None, "--ingroup-match"),
+    outgroup_match: str = typer.Option(None, "--outgroup-match"),
+    allow_multi_outgroup: bool = typer.Option(False, "--allow-multi-outgroup"),
+    mode: str = typer.Option(
+        "pwd", "--mode", help="Polymorphism measure: 'pwd' (pairwise diffs) or 'seg' (segregating sites)."
+    ),
+    sites: str = typer.Option(
+        "silent", "--sites",
+        help="Site class: 'silent' (synonymous + noncoding only, default) or 'all' (include replacement sites)."
+    ),
+    annotation_dir: Path = typer.Option(None, "--annotation-dir"),
+) -> None:
+    """Run the classic HKA test (Hudson, Kreitman & Aguade 1987).
+
+    Requires at least two loci. Tests whether the ratio of within-species
+    polymorphism to between-species divergence is homogeneous across loci
+    under a constant-rate neutral model.
+
+    Reports the chi-squared statistic, p-value, and a per-locus post-hoc
+    table showing direction of deviation (excess polymorphism = balancing
+    selection candidate; deficit = sweep/constraint candidate).
+    """
+    locus_inputs: list[HKALocusInput] = []
+    for fa in fastas:
+        typer.echo(f"Loading {fa.name}", err=True)
+        ingroup, outgroup = load_msa(
+            fa,
+            ingroup_match=ingroup_match,
+            outgroup_match=outgroup_match,
+            allow_multi_outgroup=allow_multi_outgroup,
+        )
+        if sites == "all":
+            site_arr, pi_arr, div_arr = per_site_arrays_all(ingroup, outgroup)
+            ann = None
+        else:
+            site_arr, pi_arr, div_arr, _, ann = _load_arrays(
+                fa, ingroup, outgroup, annotation_dir
+            )
+
+        if mode == "seg":
+            if sites == "all":
+                poly_val = float(count_segregating_all(ingroup, outgroup))
+            elif ann is not None:
+                poly_val = float(count_segregating_silent_annotated(ingroup, outgroup, ann))
+            else:
+                poly_val = float(count_segregating_silent(ingroup, outgroup))
+        else:
+            poly_val = float(pi_arr.sum())
+
+        locus_inputs.append(
+            HKALocusInput(
+                locus=_locus_name(fa),
+                poly=poly_val,
+                div=float(div_arr.sum()),
+                n_seqs=len(ingroup),
+            )
+        )
+
+    result = hka_test(locus_inputs, mode=mode)
+
+    typer.echo("")
+    typer.echo(f"Classic HKA Test ({mode} mode)")
+    typer.echo("=" * 40)
+    typer.echo(f"T + 1 = {result.t_hat + 1:.3f}")
+    typer.echo(f"X^2   = {result.chi2:.4f}  (df = {result.df}, p = {result.p_value:.4f})")
+    typer.echo("")
+
+    hdr = f"{'Locus':<8} {'obs_poly':>10} {'exp_poly':>10} {'obs_div':>10} {'exp_div':>10} {'chi2':>8} {'direction'}"
+    typer.echo(hdr)
+    typer.echo("-" * len(hdr))
+    for r in result.per_locus:
+        typer.echo(
+            f"{r.locus:<8} {r.obs_poly:>10.2f} {r.exp_poly:>10.2f} "
+            f"{r.obs_div:>10.2f} {r.exp_div:>10.2f} {r.chi2_poly + r.chi2_div:>8.3f} "
+            f"{r.direction}"
+        )
+
+
+def _locus_name(fa: Path) -> str:
+    """Derive a clean locus name from a FASTA path (strip .full suffix)."""
+    name = fa.stem
+    if name.endswith(".full"):
+        name = name[:-5]
+    return name
+
+
+def _load_arrays(
+    fa: Path,
+    ingroup,
+    outgroup,
+    annotation_dir: Path | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, LocusAnnotation | None]:
+    """Load per-codon or per-position arrays, with optional annotation.
+
+    Returns (sites, pi, div, nt_positions_or_None, annotation_or_None).
+    """
+    locus_name = _locus_name(fa)
+    if annotation_dir is not None:
+        ann_path = annotation_dir / f"{locus_name}.annotation.tsv"
+        if ann_path.exists():
+            ann = LocusAnnotation.from_tsv(
+                ann_path,
+                alignment_length=ingroup.alignment_length,
+                strand=_infer_strand(ann_path),
+            )
+            sites, pi, div = per_position_arrays(ingroup, outgroup, ann)
+            nt_positions = np.arange(1, ann.n_positions + 1, dtype=int)
+            return sites, pi, div, nt_positions, ann
+        typer.echo(
+            f"  warning: missing annotation {ann_path}, falling back to per-codon",
+            err=True,
+        )
+    sites, pi, div = per_codon_arrays(ingroup, outgroup)
+    return sites, pi, div, None, None
 
 
 def _infer_strand(annotation_tsv: Path) -> str:

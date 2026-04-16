@@ -928,6 +928,7 @@ dependencies = [
     { name = "mkado" },
     { name = "numpy" },
     { name = "rich" },
+    { name = "scipy" },
     { name = "seaborn" },
     { name = "typer" },
 ]
@@ -945,6 +946,7 @@ requires-dist = [
     { name = "mkado", editable = "../mkado" },
     { name = "numpy", specifier = ">=2" },
     { name = "rich", specifier = ">=14" },
+    { name = "scipy", specifier = ">=1.10" },
     { name = "seaborn", specifier = ">=0.12" },
     { name = "typer", specifier = ">=0.15" },
 ]

@@ -12,6 +12,7 @@ dependencies = [
     "mkado",
     "numpy>=2",
     "matplotlib>=3.5",
+    "scipy>=1.10",
     "seaborn>=0.12",
     "typer>=0.15",
     "rich>=14",

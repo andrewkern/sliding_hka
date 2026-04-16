@@ -63,3 +63,14 @@ def test_cli_errors_on_missing_file(tmp_path: Path):
         ["run", str(tmp_path / "nope.fa"), "--outdir", str(tmp_path)],
     )
     assert result.exit_code != 0
+
+
+def test_cli_test_subcommand_runs_on_two_loci(tmp_path: Path):
+    fa1 = tmp_path / "a.fa"
+    fa1.write_text(">out\nATGTTC\n>in1\nATGTTT\n>in2\nATGTTC\n")
+    fa2 = tmp_path / "b.fa"
+    fa2.write_text(">out\nATGGCG\n>in1\nATGGCG\n>in2\nATGGCG\n")
+    result = runner.invoke(app, ["test", str(fa1), str(fa2)])
+    assert result.exit_code == 0, result.output
+    assert "Classic HKA Test" in result.output
+    assert "X^2" in result.output

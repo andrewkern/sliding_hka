@@ -42,6 +42,148 @@ def _silent_diffs_between(
     return sum(1 for change_type, _ in path if change_type == "S")
 
 
+def segregating_silent_codon(
+    codons: list[str], code: GeneticCode = DEFAULT_CODE
+) -> int:
+    """Count of synonymous segregating sites at this codon position.
+
+    A codon position is a segregating silent site if at least one pair of
+    clean ingroup codons differs by a synonymous change. Returns 0 or 1.
+    """
+    clean = [c for c in codons if _is_clean(c)]
+    if len(clean) < 2:
+        return 0
+    for a, b in combinations(clean, 2):
+        s = _silent_diffs_between(a, b, code)
+        if s is not None and s > 0:
+            return 1
+    return 0
+
+
+def count_segregating_silent(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+    code: GeneticCode = DEFAULT_CODE,
+) -> int:
+    """Total count of silent segregating sites across all codons.
+
+    A codon contributes 1 if any ingroup pair differs by a synonymous
+    change at that position and the outgroup codon is clean (so we have a
+    valid silent-site denominator). Returns an integer count suitable for
+    the Seg mode of the classic HKA test.
+    """
+    n_codons = ingroup.num_codons
+    total = 0
+    for c in range(n_codons):
+        out_codon = _outgroup_representative_codon(outgroup, c)
+        if out_codon is None:
+            continue
+        if silent_sites_codon(out_codon, code) <= 0:
+            continue
+        in_codons = [s.get_codon(c, ingroup.reading_frame) for s in ingroup.sequences]
+        total += segregating_silent_codon(in_codons, code)
+    return total
+
+
+def count_segregating_silent_annotated(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+    annotation: LocusAnnotation,
+    code: GeneticCode = DEFAULT_CODE,
+) -> int:
+    """Count silent segregating sites using per-position annotation.
+
+    CDS positions: a codon contributes 1 if any ingroup pair differs by a
+    synonymous change (same logic as ``count_segregating_silent``).
+
+    Non-CDS positions: a site contributes 1 if at least two distinct clean
+    bases exist among the ingroup sequences at that column and the outgroup
+    is also clean (so the position is alignable).
+    """
+    total = 0
+    is_cds = annotation.is_cds()
+
+    # Non-CDS: nucleotide-level segregation
+    for col in range(annotation.n_positions):
+        if is_cds[col]:
+            continue
+        out_bases = [s.sequence[col].upper() for s in outgroup.sequences]
+        if not any(b in "ACGT" for b in out_bases):
+            continue
+        in_bases = [s.sequence[col].upper() for s in ingroup.sequences]
+        clean = {b for b in in_bases if b in "ACGT"}
+        if len(clean) >= 2:
+            total += 1
+
+    # CDS: codon-aware synonymous segregation
+    for _codon_idx, positions in annotation.codon_groups().items():
+        if len(positions) != 3:
+            continue
+        out_codons = [
+            _read_codon(seq.sequence, positions, annotation.strand)
+            for seq in outgroup.sequences
+        ]
+        out_repr = _representative_codon(out_codons)
+        if out_repr is None:
+            continue
+        if silent_sites_codon(out_repr, code) <= 0:
+            continue
+        ing_codons = [
+            _read_codon(seq.sequence, positions, annotation.strand)
+            for seq in ingroup.sequences
+        ]
+        total += segregating_silent_codon(ing_codons, code)
+
+    return total
+
+
+def per_site_arrays_all(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-site arrays treating every aligned position as one site.
+
+    No codon awareness -- counts all nucleotide differences (synonymous
+    and replacement alike). Useful when you want the HKA test to operate
+    on total variation rather than silent variation only.
+
+    Returns three numpy arrays of length ``alignment_length``:
+    ``sites``, ``pi``, ``div``.
+    """
+    n = ingroup.alignment_length
+    sites = np.zeros(n)
+    pi = np.zeros(n)
+    div = np.zeros(n)
+    for col in range(n):
+        s, p, d = _per_site_at(col, ingroup, outgroup)
+        sites[col] = s
+        pi[col] = p
+        div[col] = d
+    return sites, pi, div
+
+
+def count_segregating_all(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+) -> int:
+    """Count all segregating sites (any position with 2+ ingroup alleles).
+
+    Unlike ``count_segregating_silent`` this includes replacement changes.
+    Only positions where the outgroup has a clean base are counted (so the
+    site is alignable for divergence comparison).
+    """
+    total = 0
+    for col in range(ingroup.alignment_length):
+        out_bases = [s.sequence[col].upper() for s in outgroup.sequences]
+        if not any(b in "ACGT" for b in out_bases):
+            continue
+        in_bases = [s.sequence[col].upper() for s in ingroup.sequences]
+        clean = {b for b in in_bases if b in "ACGT"}
+        if len(clean) >= 2:
+            total += 1
+    return total
+
+
 def silent_pairwise_diff_codon(
     codons: list[str], code: GeneticCode = DEFAULT_CODE
 ) -> tuple[float, int]:

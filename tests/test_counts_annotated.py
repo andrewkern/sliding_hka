@@ -9,7 +9,11 @@ import pytest
 from mkado.core.sequences import Sequence, SequenceSet
 
 from sliding_hka.annotation import LocusAnnotation
-from sliding_hka.counts import per_codon_arrays, per_position_arrays
+from sliding_hka.counts import (
+    count_segregating_silent_annotated,
+    per_codon_arrays,
+    per_position_arrays,
+)
 
 FIXTURES = Path(__file__).parent / "data"
 
@@ -188,3 +192,63 @@ def test_per_position_cds_minus_strand_revcomps_codon():
     assert sites.sum() == pytest.approx(1 / 3)
     assert pi.sum() == pytest.approx(1.0)
     assert div.sum() == pytest.approx(0.5)
+
+
+# --- count_segregating_silent_annotated ---
+
+
+def test_seg_annotated_cds_only():
+    """CDS-only annotation: should match count_segregating_silent."""
+    from sliding_hka.counts import count_segregating_silent
+    from sliding_hka.io import load_msa
+
+    ingroup, outgroup = load_msa(FIXTURES / "synthetic_min.fa")
+    ann = LocusAnnotation.empty(12, strand="+")
+    for pos in range(12):
+        _annotate(ann, pos, "CDS", codon_index=pos // 3, codon_pos=pos % 3)
+
+    seg_codon = count_segregating_silent(ingroup, outgroup)
+    seg_ann = count_segregating_silent_annotated(ingroup, outgroup, ann)
+    assert seg_ann == seg_codon
+
+
+def test_seg_annotated_non_cds_counts_nt_segregation():
+    """Non-CDS positions segregating at nucleotide level should be counted."""
+    ing = _seq_set({
+        "Bgland_1_1": "TTTAG",
+        "Bgland_1_2": "TTCAG",
+    })
+    out = _seq_set({
+        "Bcrena_01_1": "TTCAT",
+    })
+    ann = LocusAnnotation.empty(5, strand="+")
+    for i in range(3):
+        _annotate(ann, i, "CDS", codon_index=0, codon_pos=i)
+    _annotate(ann, 3, "intergenic")
+    _annotate(ann, 4, "intergenic")
+
+    seg = count_segregating_silent_annotated(ing, out, ann)
+    # CDS codon TTT/TTC: 1 syn segregating site.
+    # Intergenic pos 3: A/A invariant -> 0.
+    # Intergenic pos 4: G/G invariant -> 0.
+    assert seg == 1
+
+
+def test_seg_annotated_mixed_with_noncds_polymorphism():
+    """Non-CDS position with polymorphism contributes 1 seg site."""
+    ing = _seq_set({
+        "Bgland_1_1": "ATGA",
+        "Bgland_1_2": "ATGT",
+    })
+    out = _seq_set({
+        "Bcrena_01_1": "ATGA",
+    })
+    ann = LocusAnnotation.empty(4, strand="+")
+    for i in range(3):
+        _annotate(ann, i, "CDS", codon_index=0, codon_pos=i)
+    _annotate(ann, 3, "intergenic")
+
+    seg = count_segregating_silent_annotated(ing, out, ann)
+    # CDS codon ATG: 0 silent sites (Met), so 0 syn seg sites.
+    # Intergenic pos 3: A/T segregating -> 1.
+    assert seg == 1
