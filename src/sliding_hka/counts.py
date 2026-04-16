@@ -42,6 +42,49 @@ def _silent_diffs_between(
     return sum(1 for change_type, _ in path if change_type == "S")
 
 
+def segregating_silent_codon(
+    codons: list[str], code: GeneticCode = DEFAULT_CODE
+) -> int:
+    """Count of synonymous segregating sites at this codon position.
+
+    A codon position is a segregating silent site if at least one pair of
+    clean ingroup codons differs by a synonymous change. Returns 0 or 1.
+    """
+    clean = [c for c in codons if _is_clean(c)]
+    if len(clean) < 2:
+        return 0
+    for a, b in combinations(clean, 2):
+        s = _silent_diffs_between(a, b, code)
+        if s is not None and s > 0:
+            return 1
+    return 0
+
+
+def count_segregating_silent(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+    code: GeneticCode = DEFAULT_CODE,
+) -> int:
+    """Total count of silent segregating sites across all codons.
+
+    A codon contributes 1 if any ingroup pair differs by a synonymous
+    change at that position and the outgroup codon is clean (so we have a
+    valid silent-site denominator). Returns an integer count suitable for
+    the Seg mode of the classic HKA test.
+    """
+    n_codons = ingroup.num_codons
+    total = 0
+    for c in range(n_codons):
+        out_codon = _outgroup_representative_codon(outgroup, c)
+        if out_codon is None:
+            continue
+        if silent_sites_codon(out_codon, code) <= 0:
+            continue
+        in_codons = [s.get_codon(c, ingroup.reading_frame) for s in ingroup.sequences]
+        total += segregating_silent_codon(in_codons, code)
+    return total
+
+
 def silent_pairwise_diff_codon(
     codons: list[str], code: GeneticCode = DEFAULT_CODE
 ) -> tuple[float, int]:

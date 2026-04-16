@@ -10,7 +10,9 @@ import pytest
 from mkado.core.codons import DEFAULT_CODE
 
 from sliding_hka.counts import (
+    count_segregating_silent,
     per_codon_arrays,
+    segregating_silent_codon,
     silent_divergence_codon,
     silent_pairwise_diff_codon,
     silent_sites_codon,
@@ -157,3 +159,39 @@ def test_per_codon_arrays_handles_dirty_codons():
     assert sites[3] == pytest.approx(1.0)
     assert pi[3] == pytest.approx(2 / 3)
     assert div[3] == pytest.approx(1 / 3)
+
+
+# --- segregating_silent_codon ---
+
+
+def test_segregating_silent_codon_two_syn_alleles():
+    # TTT and TTC differ by one synonymous change -> 1 segregating silent site
+    assert segregating_silent_codon(["TTT", "TTC"]) == 1
+
+
+def test_segregating_silent_codon_replacement_only():
+    # TTT and TTA differ by one replacement change -> 0 segregating silent sites
+    assert segregating_silent_codon(["TTT", "TTA"]) == 0
+
+
+def test_segregating_silent_codon_invariant():
+    assert segregating_silent_codon(["ATG", "ATG", "ATG"]) == 0
+
+
+def test_segregating_silent_codon_skips_dirty():
+    # Only one clean codon -> 0 (can't segregate with one sequence)
+    assert segregating_silent_codon(["TTT", "---", "NNN"]) == 0
+
+
+# --- count_segregating_silent (integration) ---
+
+
+def test_count_segregating_silent_synthetic_min():
+    ingroup, outgroup = load_msa(FIXTURES / "synthetic_min.fa")
+    s = count_segregating_silent(ingroup, outgroup)
+    # synthetic_min.fa codons:
+    #   codon 0: ATG invariant -> 0
+    #   codon 1: ingroup [TTT,TTT,TTC,TTC] -> 1 syn segregating site
+    #   codon 2: GCG invariant -> 0
+    #   codon 3: ingroup [CGC,CGC,CGT,CGC] -> 1 syn segregating site
+    assert s == 2

@@ -13,7 +13,12 @@ import numpy as np
 import typer
 
 from sliding_hka.annotation import LocusAnnotation
-from sliding_hka.counts import per_codon_arrays, per_position_arrays
+from sliding_hka.classic_hka import HKALocusInput, hka_test
+from sliding_hka.counts import (
+    count_segregating_silent,
+    per_codon_arrays,
+    per_position_arrays,
+)
 from sliding_hka.hka import LocusTotals, estimate_t_plus_1
 from sliding_hka.io import load_msa
 from sliding_hka.plot import sliding_hka_plot
@@ -142,6 +147,97 @@ def run(
         )
         plt.close(fig)
         typer.echo(f"Wrote {save_path}", err=True)
+
+
+@app.command()
+def test(
+    fastas: list[Path] = typer.Argument(
+        ..., help="Two or more aligned FASTAs (one per locus).", exists=True, readable=True
+    ),
+    ingroup_match: str = typer.Option(None, "--ingroup-match"),
+    outgroup_match: str = typer.Option(None, "--outgroup-match"),
+    allow_multi_outgroup: bool = typer.Option(False, "--allow-multi-outgroup"),
+    mode: str = typer.Option(
+        "pwd", "--mode", help="Polymorphism measure: 'pwd' (pairwise diffs) or 'seg' (segregating sites)."
+    ),
+    annotation_dir: Path = typer.Option(None, "--annotation-dir"),
+) -> None:
+    """Run the classic HKA test (Hudson, Kreitman & Aguade 1987).
+
+    Requires at least two loci. Tests whether the ratio of within-species
+    polymorphism to between-species divergence is homogeneous across loci
+    under a constant-rate neutral model.
+
+    Reports the chi-squared statistic, p-value, and a per-locus post-hoc
+    table showing direction of deviation (excess polymorphism = balancing
+    selection candidate; deficit = sweep/constraint candidate).
+    """
+    locus_inputs: list[HKALocusInput] = []
+    for fa in fastas:
+        typer.echo(f"Loading {fa.name}", err=True)
+        ingroup, outgroup = load_msa(
+            fa,
+            ingroup_match=ingroup_match,
+            outgroup_match=outgroup_match,
+            allow_multi_outgroup=allow_multi_outgroup,
+        )
+        locus_name = fa.stem
+        if locus_name.endswith(".full"):
+            locus_name = locus_name[:-5]
+
+        if annotation_dir is not None:
+            ann_path = annotation_dir / f"{locus_name}.annotation.tsv"
+            if ann_path.exists():
+                ann = LocusAnnotation.from_tsv(
+                    ann_path,
+                    alignment_length=ingroup.alignment_length,
+                    strand=_infer_strand(ann_path),
+                )
+                sites, pi_arr, div_arr = per_position_arrays(ingroup, outgroup, ann)
+            else:
+                typer.echo(f"  warning: missing annotation {ann_path}, using per-codon", err=True)
+                sites, pi_arr, div_arr = per_codon_arrays(ingroup, outgroup)
+        else:
+            sites, pi_arr, div_arr = per_codon_arrays(ingroup, outgroup)
+
+        pi_sum = float(pi_arr.sum())
+        div_sum = float(div_arr.sum())
+        sites_sum = float(sites.sum())
+
+        if mode == "seg":
+            seg_count = count_segregating_silent(ingroup, outgroup)
+            poly_val = float(seg_count)
+        else:
+            poly_val = pi_sum
+
+        locus_inputs.append(
+            HKALocusInput(
+                locus=locus_name,
+                poly=poly_val,
+                div=div_sum,
+                sites=sites_sum,
+                n_seqs=len(ingroup),
+            )
+        )
+
+    result = hka_test(locus_inputs, mode=mode)
+
+    typer.echo("")
+    typer.echo(f"Classic HKA Test ({mode} mode)")
+    typer.echo("=" * 40)
+    typer.echo(f"T + 1 = {result.t_hat + 1:.3f}")
+    typer.echo(f"X^2   = {result.chi2:.4f}  (df = {result.df}, p = {result.p_value:.4f})")
+    typer.echo("")
+
+    hdr = f"{'Locus':<8} {'obs_poly':>10} {'exp_poly':>10} {'obs_div':>10} {'exp_div':>10} {'chi2':>8} {'direction'}"
+    typer.echo(hdr)
+    typer.echo("-" * len(hdr))
+    for r in result.per_locus:
+        typer.echo(
+            f"{r.locus:<8} {r.obs_poly:>10.2f} {r.exp_poly:>10.2f} "
+            f"{r.obs_div:>10.2f} {r.exp_div:>10.2f} {r.chi2_poly + r.chi2_div:>8.3f} "
+            f"{r.direction}"
+        )
 
 
 def _infer_strand(annotation_tsv: Path) -> str:
