@@ -93,31 +93,7 @@ def run(
             outgroup_match=outgroup_match,
             allow_multi_outgroup=allow_multi_outgroup,
         )
-        locus_name = fa.stem
-        if locus_name.endswith(".full"):
-            locus_name = locus_name[:-5]
-        ann = None
-        if annotation_dir is not None:
-            ann_path = annotation_dir / f"{locus_name}.annotation.tsv"
-            if not ann_path.exists():
-                typer.echo(
-                    f"  warning: missing annotation {ann_path}, falling back to per-codon",
-                    err=True,
-                )
-                sites, pi, div = per_codon_arrays(ingroup, outgroup)
-                nt_positions = None
-            else:
-                ann = LocusAnnotation.from_tsv(
-                    ann_path,
-                    alignment_length=ingroup.alignment_length,
-                    strand=_infer_strand(ann_path),
-                )
-                sites, pi, div = per_position_arrays(ingroup, outgroup, ann)
-                # Per-position mode: nt_positions are 1-based column indices.
-                nt_positions = np.arange(1, ann.n_positions + 1, dtype=int)
-        else:
-            sites, pi, div = per_codon_arrays(ingroup, outgroup)
-            nt_positions = None
+        sites, pi, div, nt_positions, ann = _load_arrays(fa, ingroup, outgroup, annotation_dir)
         loaded.append((fa, (sites, pi, div), nt_positions, ann))
 
     if joint_t:
@@ -137,12 +113,9 @@ def run(
         out = sliding_window(
             sites, pi, div, t_plus_1=t_plus_1, w=window, nt_positions=nt_positions
         )
-        locus_name = fa.stem
-        if locus_name.endswith(".full"):
-            locus_name = locus_name[:-5]
-        save_path = outdir / f"{locus_name}.sliding_hka.{image_format}"
+        save_path = outdir / f"{_locus_name(fa)}.sliding_hka.{image_format}"
         fig = sliding_hka_plot(
-            out, t_plus_1=t_plus_1, window=window, locus=locus_name,
+            out, t_plus_1=t_plus_1, window=window, locus=_locus_name(fa),
             save_to=save_path, annotation=ann,
         )
         plt.close(fig)
@@ -181,41 +154,18 @@ def test(
             outgroup_match=outgroup_match,
             allow_multi_outgroup=allow_multi_outgroup,
         )
-        locus_name = fa.stem
-        if locus_name.endswith(".full"):
-            locus_name = locus_name[:-5]
-
-        if annotation_dir is not None:
-            ann_path = annotation_dir / f"{locus_name}.annotation.tsv"
-            if ann_path.exists():
-                ann = LocusAnnotation.from_tsv(
-                    ann_path,
-                    alignment_length=ingroup.alignment_length,
-                    strand=_infer_strand(ann_path),
-                )
-                sites, pi_arr, div_arr = per_position_arrays(ingroup, outgroup, ann)
-            else:
-                typer.echo(f"  warning: missing annotation {ann_path}, using per-codon", err=True)
-                sites, pi_arr, div_arr = per_codon_arrays(ingroup, outgroup)
-        else:
-            sites, pi_arr, div_arr = per_codon_arrays(ingroup, outgroup)
-
-        pi_sum = float(pi_arr.sum())
-        div_sum = float(div_arr.sum())
-        sites_sum = float(sites.sum())
+        sites, pi_arr, div_arr, _, _ = _load_arrays(fa, ingroup, outgroup, annotation_dir)
 
         if mode == "seg":
-            seg_count = count_segregating_silent(ingroup, outgroup)
-            poly_val = float(seg_count)
+            poly_val = float(count_segregating_silent(ingroup, outgroup))
         else:
-            poly_val = pi_sum
+            poly_val = float(pi_arr.sum())
 
         locus_inputs.append(
             HKALocusInput(
-                locus=locus_name,
+                locus=_locus_name(fa),
                 poly=poly_val,
-                div=div_sum,
-                sites=sites_sum,
+                div=float(div_arr.sum()),
                 n_seqs=len(ingroup),
             )
         )
@@ -238,6 +188,44 @@ def test(
             f"{r.obs_div:>10.2f} {r.exp_div:>10.2f} {r.chi2_poly + r.chi2_div:>8.3f} "
             f"{r.direction}"
         )
+
+
+def _locus_name(fa: Path) -> str:
+    """Derive a clean locus name from a FASTA path (strip .full suffix)."""
+    name = fa.stem
+    if name.endswith(".full"):
+        name = name[:-5]
+    return name
+
+
+def _load_arrays(
+    fa: Path,
+    ingroup,
+    outgroup,
+    annotation_dir: Path | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, LocusAnnotation | None]:
+    """Load per-codon or per-position arrays, with optional annotation.
+
+    Returns (sites, pi, div, nt_positions_or_None, annotation_or_None).
+    """
+    locus_name = _locus_name(fa)
+    if annotation_dir is not None:
+        ann_path = annotation_dir / f"{locus_name}.annotation.tsv"
+        if ann_path.exists():
+            ann = LocusAnnotation.from_tsv(
+                ann_path,
+                alignment_length=ingroup.alignment_length,
+                strand=_infer_strand(ann_path),
+            )
+            sites, pi, div = per_position_arrays(ingroup, outgroup, ann)
+            nt_positions = np.arange(1, ann.n_positions + 1, dtype=int)
+            return sites, pi, div, nt_positions, ann
+        typer.echo(
+            f"  warning: missing annotation {ann_path}, falling back to per-codon",
+            err=True,
+        )
+    sites, pi, div = per_codon_arrays(ingroup, outgroup)
+    return sites, pi, div, None, None
 
 
 def _infer_strand(annotation_tsv: Path) -> str:

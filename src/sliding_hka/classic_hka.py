@@ -15,6 +15,7 @@ Both use the same divergence measure (D_i = between-species differences).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Sequence
 
 from scipy.stats import chi2
@@ -27,7 +28,6 @@ class HKALocusInput:
     locus: str
     poly: float    # S_i (Seg) or pi_i (Pwd)
     div: float     # D_i (between-species differences)
-    sites: float   # m_i (number of silent sites examined)
     n_seqs: int    # number of ingroup sequences
 
 
@@ -60,11 +60,13 @@ class HKATestResult:
     per_locus: list[HKALocusResult]
 
 
+@lru_cache(maxsize=64)
 def _watterson_a(n: int) -> float:
     """Harmonic number a_n = sum(1/j for j = 1 .. n-1)."""
     return sum(1.0 / j for j in range(1, n))
 
 
+@lru_cache(maxsize=64)
 def _watterson_a2(n: int) -> float:
     """a2_n = sum(1/j^2 for j = 1 .. n-1)."""
     return sum(1.0 / (j * j) for j in range(1, n))
@@ -98,32 +100,30 @@ def hka_test(
     if total_poly <= 0:
         raise ValueError("total polymorphism is zero; cannot estimate parameters")
 
-    n = inputs[0].n_seqs
-    a_n = _watterson_a(n)
-
     if mode == "seg":
-        t_plus_1 = total_div / total_poly * a_n
+        # Pool theta estimates via Watterson: sum(S_i / a(n_i)) estimates sum(theta_i)
+        theta_sum = sum(inp.poly / _watterson_a(inp.n_seqs) for inp in inputs)
+        t_plus_1 = total_div / theta_sum if theta_sum > 0 else total_div / total_poly
     else:
         t_plus_1 = total_div / total_poly
 
     t_hat = t_plus_1 - 1.0
 
-    if mode == "seg":
-        poly_scale = a_n
-    else:
-        poly_scale = 1.0
-
     locus_results: list[HKALocusResult] = []
     total_chi2 = 0.0
 
     for inp in inputs:
+        n = inp.n_seqs
+        a_n = _watterson_a(n)
+        a2_n = _watterson_a2(n)
+        poly_scale = a_n if mode == "seg" else 1.0
+
         theta_i = (inp.poly + inp.div) / (poly_scale + t_plus_1)
 
         exp_poly = theta_i * poly_scale
         exp_div = theta_i * t_plus_1
 
         if mode == "seg":
-            a2_n = _watterson_a2(n)
             var_poly = theta_i * a_n + theta_i ** 2 * a2_n
         else:
             b1 = (n + 1) / (3.0 * (n - 1))

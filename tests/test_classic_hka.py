@@ -32,13 +32,13 @@ def test_hka_paper_example_seg_mode():
     a_n = sum(1.0 / j for j in range(1, 11))
 
     inputs = [
-        HKALocusInput(locus="A", poly=30, div=78, sites=1243, n_seqs=11),
-        HKALocusInput(locus="B", poly=20, div=16, sites=319, n_seqs=11),
+        HKALocusInput(locus="A", poly=30, div=78, n_seqs=11),
+        HKALocusInput(locus="B", poly=20, div=16, n_seqs=11),
     ]
     result = hka_test(inputs, mode="seg")
 
-    # T+1 = sum(D) / sum(S) * a_n = (78+16) / (30+20) * a_n
-    expected_t_plus_1 = (78 + 16) / (30 + 20) * a_n
+    # T+1 = sum(D) / sum(S/a_n) = (78+16) / (30/a_n + 20/a_n) = (78+16)*a_n / (30+20)
+    expected_t_plus_1 = (78 + 16) / (30 / a_n + 20 / a_n)
     assert result.t_hat + 1 == pytest.approx(expected_t_plus_1, rel=1e-6)
 
     # df = L - 1 = 1
@@ -55,8 +55,8 @@ def test_hka_paper_example_seg_mode():
 def test_hka_pwd_mode_basic():
     """Pwd mode: use pairwise-difference sums instead of seg-site counts."""
     inputs = [
-        HKALocusInput(locus="A", poly=10.0, div=50.0, sites=500, n_seqs=12),
-        HKALocusInput(locus="B", poly=5.0, div=50.0, sites=500, n_seqs=12),
+        HKALocusInput(locus="A", poly=10.0, div=50.0, n_seqs=12),
+        HKALocusInput(locus="B", poly=5.0, div=50.0, n_seqs=12),
     ]
     result = hka_test(inputs, mode="pwd")
 
@@ -73,9 +73,9 @@ def test_hka_pwd_mode_basic():
 
 def test_hka_three_loci_df():
     inputs = [
-        HKALocusInput(locus="A", poly=10, div=50, sites=500, n_seqs=10),
-        HKALocusInput(locus="B", poly=10, div=50, sites=500, n_seqs=10),
-        HKALocusInput(locus="C", poly=10, div=50, sites=500, n_seqs=10),
+        HKALocusInput(locus="A", poly=10, div=50, n_seqs=10),
+        HKALocusInput(locus="B", poly=10, div=50, n_seqs=10),
+        HKALocusInput(locus="C", poly=10, div=50, n_seqs=10),
     ]
     result = hka_test(inputs, mode="pwd")
     assert result.df == 2
@@ -84,8 +84,8 @@ def test_hka_three_loci_df():
 def test_hka_homogeneous_data_gives_low_chi2():
     """If all loci have the same poly/div ratio, chi2 should be 0."""
     inputs = [
-        HKALocusInput(locus="A", poly=10, div=50, sites=500, n_seqs=10),
-        HKALocusInput(locus="B", poly=20, div=100, sites=1000, n_seqs=10),
+        HKALocusInput(locus="A", poly=10, div=50, n_seqs=10),
+        HKALocusInput(locus="B", poly=20, div=100, n_seqs=10),
     ]
     result = hka_test(inputs, mode="pwd")
     assert result.chi2 == pytest.approx(0.0, abs=1e-10)
@@ -94,7 +94,7 @@ def test_hka_homogeneous_data_gives_low_chi2():
 
 def test_hka_raises_on_single_locus():
     inputs = [
-        HKALocusInput(locus="A", poly=10, div=50, sites=500, n_seqs=10),
+        HKALocusInput(locus="A", poly=10, div=50, n_seqs=10),
     ]
     with pytest.raises(ValueError, match="at least 2"):
         hka_test(inputs, mode="pwd")
@@ -102,8 +102,8 @@ def test_hka_raises_on_single_locus():
 
 def test_hka_raises_on_zero_polymorphism():
     inputs = [
-        HKALocusInput(locus="A", poly=0, div=50, sites=500, n_seqs=10),
-        HKALocusInput(locus="B", poly=0, div=50, sites=500, n_seqs=10),
+        HKALocusInput(locus="A", poly=0, div=50, n_seqs=10),
+        HKALocusInput(locus="B", poly=0, div=50, n_seqs=10),
     ]
     with pytest.raises(ValueError, match="polymorphism"):
         hka_test(inputs, mode="pwd")
@@ -111,8 +111,8 @@ def test_hka_raises_on_zero_polymorphism():
 
 def test_hka_per_locus_chi2_sums_to_total():
     inputs = [
-        HKALocusInput(locus="A", poly=30, div=78, sites=1243, n_seqs=11),
-        HKALocusInput(locus="B", poly=20, div=16, sites=319, n_seqs=11),
+        HKALocusInput(locus="A", poly=30, div=78, n_seqs=11),
+        HKALocusInput(locus="B", poly=20, div=16, n_seqs=11),
     ]
     result = hka_test(inputs, mode="seg")
     per_locus_sum = sum(
