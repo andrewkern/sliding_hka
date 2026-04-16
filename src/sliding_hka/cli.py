@@ -15,10 +15,12 @@ import typer
 from sliding_hka.annotation import LocusAnnotation
 from sliding_hka.classic_hka import HKALocusInput, hka_test
 from sliding_hka.counts import (
+    count_segregating_all,
     count_segregating_silent,
     count_segregating_silent_annotated,
     per_codon_arrays,
     per_position_arrays,
+    per_site_arrays_all,
 )
 from sliding_hka.hka import LocusTotals, estimate_t_plus_1
 from sliding_hka.io import load_msa
@@ -134,6 +136,10 @@ def test(
     mode: str = typer.Option(
         "pwd", "--mode", help="Polymorphism measure: 'pwd' (pairwise diffs) or 'seg' (segregating sites)."
     ),
+    sites: str = typer.Option(
+        "silent", "--sites",
+        help="Site class: 'silent' (synonymous + noncoding only, default) or 'all' (include replacement sites)."
+    ),
     annotation_dir: Path = typer.Option(None, "--annotation-dir"),
 ) -> None:
     """Run the classic HKA test (Hudson, Kreitman & Aguade 1987).
@@ -155,10 +161,18 @@ def test(
             outgroup_match=outgroup_match,
             allow_multi_outgroup=allow_multi_outgroup,
         )
-        sites, pi_arr, div_arr, _, ann = _load_arrays(fa, ingroup, outgroup, annotation_dir)
+        if sites == "all":
+            site_arr, pi_arr, div_arr = per_site_arrays_all(ingroup, outgroup)
+            ann = None
+        else:
+            site_arr, pi_arr, div_arr, _, ann = _load_arrays(
+                fa, ingroup, outgroup, annotation_dir
+            )
 
         if mode == "seg":
-            if ann is not None:
+            if sites == "all":
+                poly_val = float(count_segregating_all(ingroup, outgroup))
+            elif ann is not None:
                 poly_val = float(count_segregating_silent_annotated(ingroup, outgroup, ann))
             else:
                 poly_val = float(count_segregating_silent(ingroup, outgroup))

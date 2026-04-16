@@ -10,8 +10,10 @@ import pytest
 from mkado.core.codons import DEFAULT_CODE
 
 from sliding_hka.counts import (
+    count_segregating_all,
     count_segregating_silent,
     per_codon_arrays,
+    per_site_arrays_all,
     segregating_silent_codon,
     silent_divergence_codon,
     silent_pairwise_diff_codon,
@@ -195,3 +197,37 @@ def test_count_segregating_silent_synthetic_min():
     #   codon 2: GCG invariant -> 0
     #   codon 3: ingroup [CGC,CGC,CGT,CGC] -> 1 syn segregating site
     assert s == 2
+
+
+# --- all-sites (silent + replacement) helpers ---
+
+
+def test_per_site_arrays_all_counts_every_position():
+    ingroup, outgroup = load_msa(FIXTURES / "synthetic_min.fa")
+    sites, pi, div = per_site_arrays_all(ingroup, outgroup)
+    # 12 nt positions; every position has a clean outgroup base
+    assert len(sites) == 12
+    assert sites.sum() == 12.0
+
+
+def test_per_site_arrays_all_includes_replacement_diffs():
+    ingroup, outgroup = load_msa(FIXTURES / "synthetic_min.fa")
+    sites, pi, div = per_site_arrays_all(ingroup, outgroup)
+    # Position 8 (codon 2, pos 2): all GCG -> G at pos 8, invariant
+    assert pi[8] == 0.0
+    # Position 2 (codon 0, pos 2): all ATG -> G at pos 2, invariant
+    assert pi[2] == 0.0
+    # Position 5 (codon 1, pos 2): ingroup [T,T,C,C] -> 4 diffs / 6 pairs
+    assert pi[5] == pytest.approx(4 / 6)
+
+
+def test_count_segregating_all_includes_replacement():
+    ingroup, outgroup = load_msa(FIXTURES / "synthetic_min.fa")
+    s_silent = count_segregating_silent(ingroup, outgroup)
+    s_all = count_segregating_all(ingroup, outgroup)
+    # All-sites count >= silent count (may include nonsyn seg sites)
+    assert s_all >= s_silent
+    # synthetic_min: codon 1 pos 2 (TTT/TTC) -> 1 seg site (syn)
+    #               codon 3 pos 2 (CGC/CGT) -> 1 seg site (syn)
+    # No replacement polymorphisms in this fixture, so all == silent
+    assert s_all == s_silent

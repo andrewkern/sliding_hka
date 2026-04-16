@@ -137,6 +137,53 @@ def count_segregating_silent_annotated(
     return total
 
 
+def per_site_arrays_all(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-site arrays treating every aligned position as one site.
+
+    No codon awareness -- counts all nucleotide differences (synonymous
+    and replacement alike). Useful when you want the HKA test to operate
+    on total variation rather than silent variation only.
+
+    Returns three numpy arrays of length ``alignment_length``:
+    ``sites``, ``pi``, ``div``.
+    """
+    n = ingroup.alignment_length
+    sites = np.zeros(n)
+    pi = np.zeros(n)
+    div = np.zeros(n)
+    for col in range(n):
+        s, p, d = _per_site_at(col, ingroup, outgroup)
+        sites[col] = s
+        pi[col] = p
+        div[col] = d
+    return sites, pi, div
+
+
+def count_segregating_all(
+    ingroup: SequenceSet,
+    outgroup: SequenceSet,
+) -> int:
+    """Count all segregating sites (any position with 2+ ingroup alleles).
+
+    Unlike ``count_segregating_silent`` this includes replacement changes.
+    Only positions where the outgroup has a clean base are counted (so the
+    site is alignable for divergence comparison).
+    """
+    total = 0
+    for col in range(ingroup.alignment_length):
+        out_bases = [s.sequence[col].upper() for s in outgroup.sequences]
+        if not any(b in "ACGT" for b in out_bases):
+            continue
+        in_bases = [s.sequence[col].upper() for s in ingroup.sequences]
+        clean = {b for b in in_bases if b in "ACGT"}
+        if len(clean) >= 2:
+            total += 1
+    return total
+
+
 def silent_pairwise_diff_codon(
     codons: list[str], code: GeneticCode = DEFAULT_CODE
 ) -> tuple[float, int]:
